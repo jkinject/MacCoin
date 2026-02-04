@@ -33,7 +33,7 @@ class UpdateChecker: ObservableObject {
     private let checkInterval: TimeInterval = 3600 // 1시간
 
     var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0"
     }
 
     init() {

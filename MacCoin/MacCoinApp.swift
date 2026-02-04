@@ -6,20 +6,28 @@ struct MacCoinApp: App {
     @StateObject private var updateChecker = UpdateChecker()
     @Environment(\.openSettings) private var openSettings
 
+    private var sortedSelectedCoins: [CoinSymbol] {
+        CoinSymbol.allCases.filter { binanceService.selectedCoins.contains($0) }
+    }
+
     var body: some Scene {
         MenuBarExtra {
-            if binanceService.price != nil {
-                Text("BTC/USDT: \(binanceService.formattedPrice)")
-            } else if let error = binanceService.errorMessage {
+            if let error = binanceService.errorMessage {
                 Text("오류: \(error)")
-            } else {
+            } else if binanceService.prices.isEmpty {
                 Text("로딩 중...")
+            } else {
+                ForEach(sortedSelectedCoins) { coin in
+                    if let price = binanceService.prices[coin] {
+                        Text("\(coin.displayName): \(BinanceService.formattedPrice(for: coin, price: price))")
+                    }
+                }
             }
 
             Divider()
 
             Button("새로고침") {
-                Task { await binanceService.fetchPrice() }
+                Task { await binanceService.fetchPrices() }
             }
             .keyboardShortcut("r")
 

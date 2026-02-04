@@ -1,5 +1,12 @@
 import SwiftUI
 
+enum CoinSymbol: String, CaseIterable, Identifiable, Codable {
+    case btc = "BTC", eth = "ETH", xrp = "XRP", sol = "SOL", doge = "DOGE"
+    var id: String { rawValue }
+    var tradingPair: String { "\(rawValue)USDT" }
+    var displayName: String { "\(rawValue)/USDT" }
+}
+
 struct BinanceTickerResponse: Decodable {
     let symbol: String
     let price: String
@@ -7,43 +14,75 @@ struct BinanceTickerResponse: Decodable {
 
 @MainActor
 class BinanceService: ObservableObject {
-    @Published var price: Double?
+    @Published var prices: [CoinSymbol: Double] = [:]
     @Published var errorMessage: String?
-    @AppStorage("pollingInterval") var pollingInterval: Double = 60
+    @Published var selectedCoins: Set<CoinSymbol> = [.btc] {
+        didSet { saveSelectedCoins() }
+    }
+    @Published var menuBarCoin: CoinSymbol = .btc {
+        didSet { UserDefaults.standard.set(menuBarCoin.rawValue, forKey: "menuBarCoin") }
+    }
+    @Published var hideSymbol: Bool = false {
+        didSet { UserDefaults.standard.set(hideSymbol, forKey: "hideSymbol") }
+    }
+    @Published var pollingInterval: Double = 60 {
+        didSet { UserDefaults.standard.set(pollingInterval, forKey: "pollingInterval") }
+    }
 
     private var timer: Timer?
-    private let url = URL(string: "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")!
 
-    private static let priceFormatter: NumberFormatter = {
+    private static let integerFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.maximumFractionDigits = 0
         return f
     }()
 
-    var formattedPrice: String {
-        guard let price else { return "---" }
-        return (Self.priceFormatter.string(from: NSNumber(value: price)) ?? "---")
+    private static let decimalFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 4
+        return f
+    }()
+
+    static func formattedPrice(for coin: CoinSymbol, price: Double) -> String {
+        let formatter = (price >= 10) ? integerFormatter : decimalFormatter
+        return formatter.string(from: NSNumber(value: price)) ?? "---"
     }
 
     var menuBarTitle: String {
-        guard price != nil else { return "?" }
-        return formattedPrice
+        guard let price = prices[menuBarCoin] else { return "?" }
+        let formatted = Self.formattedPrice(for: menuBarCoin, price: price)
+        return hideSymbol ? formatted : "\(menuBarCoin.rawValue) \(formatted)"
     }
 
     init() {
+        loadSelectedCoins()
+        loadMenuBarCoin()
+        hideSymbol = UserDefaults.standard.bool(forKey: "hideSymbol")
+        pollingInterval = UserDefaults.standard.object(forKey: "pollingInterval") as? Double ?? 60
         startPolling()
-        Task { await fetchPrice() }
+        Task { await fetchPrices() }
     }
 
-    func fetchPrice() async {
+    func fetchPrices() async {
+        let coins = selectedCoins
+        guard !coins.isEmpty else { return }
+
+        let symbols = coins.map { "\"\($0.tradingPair)\"" }.joined(separator: ",")
+        let urlString = "https://api.binance.com/api/v3/ticker/price?symbols=[\(symbols)]"
+        guard let url = URL(string: urlString) else { return }
+
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
-            let ticker = try JSONDecoder().decode(BinanceTickerResponse.self, from: data)
-            if let value = Double(ticker.price) {
-                self.price = value
-                self.errorMessage = nil
+            let tickers = try JSONDecoder().decode([BinanceTickerResponse].self, from: data)
+            for ticker in tickers {
+                if let coin = CoinSymbol.allCases.first(where: { $0.tradingPair == ticker.symbol }),
+                   let value = Double(ticker.price) {
+                    prices[coin] = value
+                }
             }
+            self.errorMessage = nil
         } catch {
             self.errorMessage = error.localizedDescription
         }
@@ -54,7 +93,7 @@ class BinanceService: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: pollingInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                await self.fetchPrice()
+                await self.fetchPrices()
             }
         }
     }
@@ -62,5 +101,41 @@ class BinanceService: ObservableObject {
     func updatePollingInterval(_ interval: Double) {
         pollingInterval = interval
         startPolling()
+    }
+
+    func toggleCoin(_ coin: CoinSymbol) {
+        if coin == .btc { return }
+        if selectedCoins.contains(coin) {
+            selectedCoins.remove(coin)
+            if menuBarCoin == coin {
+                menuBarCoin = .btc
+            }
+            prices.removeValue(forKey: coin)
+        } else {
+            selectedCoins.insert(coin)
+            Task { await fetchPrices() }
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func saveSelectedCoins() {
+        let rawValues = selectedCoins.map { $0.rawValue }
+        UserDefaults.standard.set(rawValues, forKey: "selectedCoins")
+    }
+
+    private func loadSelectedCoins() {
+        if let rawValues = UserDefaults.standard.stringArray(forKey: "selectedCoins") {
+            let coins = Set(rawValues.compactMap { CoinSymbol(rawValue: $0) })
+            selectedCoins = coins.isEmpty ? [.btc] : coins
+        }
+    }
+
+    private func loadMenuBarCoin() {
+        if let raw = UserDefaults.standard.string(forKey: "menuBarCoin"),
+           let coin = CoinSymbol(rawValue: raw),
+           selectedCoins.contains(coin) {
+            menuBarCoin = coin
+        }
     }
 }
