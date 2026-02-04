@@ -19,7 +19,7 @@ struct SettingsView: View {
                     Text(label).tag(value)
                 }
             }
-            .onChange(of: selectedInterval) { newValue in
+            .onChange(of: selectedInterval) { _, newValue in
                 binanceService.updatePollingInterval(newValue)
             }
         }

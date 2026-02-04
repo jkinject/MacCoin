@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 
 struct BinanceTickerResponse: Decodable {
@@ -28,8 +27,8 @@ class BinanceService: ObservableObject {
     }
 
     var menuBarTitle: String {
-        guard let price else { return "₿ ---" }
-        return (Self.priceFormatter.string(from: NSNumber(value: price)) ?? "---")
+        guard price != nil else { return "?" }
+        return formattedPrice
     }
 
     init() {
