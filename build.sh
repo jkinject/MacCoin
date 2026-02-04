@@ -3,6 +3,7 @@ set -e
 
 SIGN_IDENTITY="Developer ID Application: Young suk Lee (Z6W6BC2L2L)"
 TEAM_ID="Z6W6BC2L2L"
+KEYCHAIN_PROFILE="MacCoin"
 ARCHIVE_PATH="build/MacCoin.xcarchive"
 EXPORT_PATH="build/export"
 ZIP_PATH="build/MacCoin.app.zip"
@@ -28,11 +29,26 @@ echo "🔏 서명 확인 중..."
 codesign --verify --verbose "$APP_PATH"
 
 echo ""
-echo "📦 배포용 ZIP 생성 중..."
+echo "📦 공증용 ZIP 생성 중..."
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
 echo ""
-echo "✅ 빌드 완료!"
+echo "📮 Apple 공증 요청 중..."
+xcrun notarytool submit "$ZIP_PATH" \
+  --keychain-profile "$KEYCHAIN_PROFILE" \
+  --wait
+
+echo ""
+echo "📎 공증 티켓 스테이플링 중..."
+xcrun stapler staple "$APP_PATH"
+
+echo ""
+echo "📦 최종 배포용 ZIP 재생성 중..."
+rm -f "$ZIP_PATH"
+ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+
+echo ""
+echo "✅ 빌드 및 공증 완료!"
 echo "   앱: $APP_PATH"
 echo "   ZIP: $ZIP_PATH"
 echo ""
